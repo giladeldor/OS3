@@ -49,7 +49,8 @@ void threadWorker(void *_arg) {
 void getargs(int *port, int *numThreads, int *queueSize, OverloadPolicy *policy,
              int argc, char *argv[]) {
   if (argc < 5) {
-    fprintf(stderr, "Usage: %s <port> <threads> <queue_size>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <port> <threads> <queue_size> <drop_policy>\n",
+            argv[0]);
     exit(1);
   }
   *port = atoi(argv[1]);
@@ -65,7 +66,8 @@ void getargs(int *port, int *numThreads, int *queueSize, OverloadPolicy *policy,
   } else if (strcmp(argv[4], "random") == 0) {
     *policy = DROP_RANDOM;
   } else {
-    fprintf(stderr, "Usage: %s <port> <threads> <queue_size>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <port> <threads> <queue_size> <drop_policy>\n",
+            argv[0]);
     exit(1);
   }
 }
@@ -106,6 +108,7 @@ int main(int argc, char *argv[]) {
         QueueRemoveFirst(queue);
       case DROP_TAIL:
         Close(connfd);
+        pthread_mutex_unlock(&queueLock);
         continue;
       case DROP_RANDOM:
         for (int i = 0; i < size; i++) {
