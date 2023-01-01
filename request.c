@@ -4,7 +4,7 @@
 
 #include "request.h"
 #include "segel.h"
-
+#include <assert.h>
 
 // requestError(      fd,    filename,        "404",    "Not found", "OS-HW3
 // Server could not find this file");
@@ -193,4 +193,114 @@ void requestHandle(int fd) {
     }
     requestServeDynamic(fd, filename, cgiargs);
   }
+}
+
+RequestQueue *QueueCreate(int maxSize) {
+  RequestQueue *queue = (RequestQueue *)malloc(sizeof(*queue));
+  queue->head = NULL;
+  queue->size = 0;
+  queue->maxSize = maxSize;
+
+  return queue;
+}
+
+void QueueFree(RequestQueue *queue) {
+  if (!queue) {
+    return NULL;
+  }
+
+  RequestNode *current = queue->head;
+  while (current) {
+    RequestNode *next = current->next;
+    free(current);
+    current = next;
+  }
+
+  free(queue);
+}
+
+void QueueAdd(RequestQueue *queue, RequestInfo info) {
+  assert(queue != NULL);
+  assert(queue->size < queue->maxSize);
+
+  RequestNode *node = (RequestNode *)malloc(sizeof(*node));
+  node->next = NULL;
+  node->info = info;
+
+  if (!queue->head) {
+    node->prev = NULL;
+    queue->head = node;
+  } else {
+    RequestNode *last = queue->head;
+    while (last->next) {
+      last = last->next;
+    }
+
+    node->prev = last;
+    last->next = node;
+  }
+
+  queue->size++;
+}
+
+RequestInfo QueueRemoveFirst(RequestQueue *queue) {
+  assert(queue != NULL);
+  assert(queue->size > 0);
+
+  RequestNode *first = queue->head;
+
+  queue->head = first->next;
+  if (queue->head) {
+    queue->head->prev = NULL;
+  }
+
+  RequestInfo info = first->info;
+  free(first);
+  queue->size--;
+  return info;
+}
+
+RequestInfo QueueRemoveLast(RequestQueue *queue) {
+  assert(queue != NULL);
+  assert(queue->size > 0);
+
+  RequestNode *last = queue->head;
+  while (last->next) {
+    last = last->next;
+  }
+
+  if (last->prev) {
+    last->prev->next = NULL;
+  } else {
+    queue->head = NULL;
+  }
+
+  RequestInfo info = last->info;
+  free(last);
+  queue->size--;
+  return info;
+}
+
+RequestInfo QueueRemoveRandom(RequestQueue *queue) {
+  assert(queue != NULL);
+  assert(queue->size > 0);
+
+  int idx = rand() % queue->size;
+  if (idx == 0) {
+    return QueueRemoveFirst(queue);
+  } else if (idx == queue->size - 1) {
+    return QueueRemoveLast(queue);
+  }
+
+  RequestNode *itr = queue->head;
+  for (int counter = idx; counter > 0; counter--) {
+    itr = itr->next;
+  }
+
+  itr->prev->next = itr->next;
+  itr->next->prev = itr->prev;
+
+  RequestInfo info = itr->info;
+  free(itr);
+  return info;
 }
