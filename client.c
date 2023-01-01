@@ -1,21 +1,21 @@
 /*
  * client.c: A very, very primitive HTTP client.
- * 
- * To run, try: 
+ *
+ * To run, try:
  *      ./client www.cs.technion.ac.il 80 /
  *
  * Sends one HTTP request to the specified HTTP server.
  * Prints out the HTTP response.
  *
- * HW3: For testing your server, you will want to modify this client.  
+ * HW3: For testing your server, you will want to modify this client.
  * For example:
- * 
- * You may want to make this multi-threaded so that you can 
+ *
+ * You may want to make this multi-threaded so that you can
  * send many requests simultaneously to the server.
  *
- * You may also want to be able to request different URIs; 
- * you may want to get more URIs from the command line 
- * or read the list from a file. 
+ * You may also want to be able to request different URIs;
+ * you may want to get more URIs from the command line
+ * or read the list from a file.
  *
  * When we test your server, we will be using modifications to this client.
  *
@@ -24,10 +24,9 @@
 #include "segel.h"
 
 /*
- * Send an HTTP request for the specified file 
+ * Send an HTTP request for the specified file
  */
-void clientSend(int fd, char *filename)
-{
+void clientSend(int fd, char *filename) {
   char buf[MAXLINE];
   char hostname[MAXLINE];
 
@@ -38,17 +37,16 @@ void clientSend(int fd, char *filename)
   sprintf(buf, "%shost: %s\n\r\n", buf, hostname);
   Rio_writen(fd, buf, strlen(buf));
 }
-  
+
 /*
  * Read the HTTP response and print it out
  */
-void clientPrint(int fd)
-{
+void clientPrint(int fd) {
   rio_t rio;
-  char buf[MAXBUF];  
+  char buf[MAXBUF];
   int length = 0;
   int n;
-  
+
   Rio_readinitb(&rio, fd);
 
   /* Read and display the HTTP Header */
@@ -71,8 +69,7 @@ void clientPrint(int fd)
   }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
   char *host, *filename;
   int port;
   int clientfd;
@@ -88,10 +85,10 @@ int main(int argc, char *argv[])
 
   /* Open a single connection to the specified host and port */
   clientfd = Open_clientfd(host, port);
-  
+
   clientSend(clientfd, filename);
   clientPrint(clientfd);
-    
+
   Close(clientfd);
 
   exit(0);
