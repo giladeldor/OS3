@@ -6,6 +6,13 @@ RequestQueue *queue;
 pthread_mutex_t queueLock;
 pthread_cond_t queueCond;
 
+typedef enum {
+  BLOCK,
+  DROP_TAIL,
+  DROP_HEAD,
+  DROP_RANDOM,
+} OverloadPolicy;
+
 //
 // server.c: A very, very simple web server
 //
@@ -39,22 +46,36 @@ void threadWorker(void *_arg) {
 }
 
 // HW3: Parse the new arguments too
-void getargs(int *port, int *numThreads, int *queueSize, int argc,
-             char *argv[]) {
-  if (argc < 4) {
+void getargs(int *port, int *numThreads, int *queueSize, OverloadPolicy *policy,
+             int argc, char *argv[]) {
+  if (argc < 5) {
     fprintf(stderr, "Usage: %s <port> <threads> <queue_size>\n", argv[0]);
     exit(1);
   }
   *port = atoi(argv[1]);
   *numThreads = atoi(argv[2]);
   *queueSize = atoi(argv[3]);
+
+  if (strcmp(argv[4], "block") == 0) {
+    *policy = BLOCK;
+  } else if (strcmp(argv[4], "dt") == 0) {
+    *policy = DROP_TAIL;
+  } else if (strcmp(argv[4], "dh") == 0) {
+    *policy = DROP_HEAD;
+  } else if (strcmp(argv[4], "random") == 0) {
+    *policy = DROP_RANDOM;
+  } else {
+    fprintf(stderr, "Usage: %s <port> <threads> <queue_size>\n", argv[0]);
+    exit(1);
+  }
 }
 
 int main(int argc, char *argv[]) {
   int listenfd, connfd, port, numThreads, queueSize, clientlen;
+  OverloadPolicy policy;
   struct sockaddr_in clientaddr;
 
-  getargs(&port, &numThreads, &queueSize, argc, argv);
+  getargs(&port, &numThreads, &queueSize, &policy, argc, argv);
 
   queue = QueueCreate(queueSize);
   pthread_mutex_init(&queueLock, NULL);
@@ -76,7 +97,23 @@ int main(int argc, char *argv[]) {
 
     // Wait until there is room in the queue.
     if (queue->size == queue->maxSize) {
-      pthread_cond_wait(&queueCond, &queueLock);
+      switch (policy) {
+      case BLOCK:
+        pthread_cond_wait(&queueCond, &queueLock);
+        break;
+      case DROP_HEAD:
+        QueueRemoveFirst(queue);
+      case DROP_TAIL:
+        Close(connfd);
+        continue;
+      case DROP_RANDOM:
+        int size = queue->size / 2;
+        for (int i = 0; i < size; i++) {
+          QueueRemoveRandom(queue);
+        }
+      default:
+        break;
+      }
     }
     assert(queue->size < queue->maxSize);
 
