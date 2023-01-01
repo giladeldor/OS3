@@ -97,6 +97,7 @@ int main(int argc, char *argv[]) {
 
     // Wait until there is room in the queue.
     if (queue->size == queue->maxSize) {
+      int size = queue->size / 2;
       switch (policy) {
       case BLOCK:
         pthread_cond_wait(&queueCond, &queueLock);
@@ -107,7 +108,6 @@ int main(int argc, char *argv[]) {
         Close(connfd);
         continue;
       case DROP_RANDOM:
-        int size = queue->size / 2;
         for (int i = 0; i < size; i++) {
           QueueRemoveRandom(queue);
         }
