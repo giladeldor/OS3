@@ -1,4 +1,5 @@
 #ifndef __REQUEST_H__
+#include <pthread.h>
 
 typedef struct {
   int fd;
@@ -18,6 +19,8 @@ typedef struct {
 } RequestQueue;
 
 extern RequestQueue *queue;
+extern pthread_mutex_t queueLock;
+extern pthread_cond_t queueCond;
 
 RequestQueue *QueueCreate(int maxSize);
 
