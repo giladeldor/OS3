@@ -2,9 +2,11 @@
 #include "segel.h"
 #include <assert.h>
 
-RequestQueue *queue;
+volatile RequestQueue *queue;
+volatile int numCurrentWorkers;
 pthread_mutex_t queueLock;
-pthread_cond_t queueCond;
+pthread_cond_t queueNotEmptyCond;
+pthread_cond_t queueNotFullCond;
 
 typedef enum {
   BLOCK,
@@ -36,20 +38,31 @@ void threadWorker(void *arg) {
     pthread_mutex_lock(&queueLock);
 
     // Wait until there is a job.
-    if (queue->size == 0) {
-      pthread_cond_wait(&queueCond, &queueLock);
+    while (queue->size == 0) {
+      pthread_cond_wait(&queueNotEmptyCond, &queueLock);
     }
     assert(queue->size > 0);
+    numCurrentWorkers++;
 
     info = QueueRemoveFirst(queue);
     info.handleTime = getTime();
 
     pthread_mutex_unlock(&queueLock);
 
+    // printf("Dispatch Time: %lu.%06lu\n",
+    //        getTimeDiff(&info.arrivalTime, &info.handleTime).tv_sec,
+    //        getTimeDiff(&info.arrivalTime, &info.handleTime).tv_usec);
+
     // Handle request.
     statistics.handleCount++;
     requestHandle(&info, &statistics);
     Close(info.fd);
+
+    pthread_mutex_lock(&queueLock);
+    // Signal to main thread that there is space in queue.
+    numCurrentWorkers--;
+    pthread_mutex_unlock(&queueLock);
+    pthread_cond_signal(&queueNotFullCond);
   }
 }
 
@@ -84,12 +97,16 @@ int main(int argc, char *argv[]) {
   int listenfd, connfd, port, numThreads, queueSize, clientlen;
   OverloadPolicy policy;
   struct sockaddr_in clientaddr;
+  numCurrentWorkers = 0;
 
   getargs(&port, &numThreads, &queueSize, &policy, argc, argv);
 
   queue = QueueCreate(queueSize);
   pthread_mutex_init(&queueLock, NULL);
-  pthread_cond_init(&queueCond, NULL);
+  pthread_cond_init(&queueNotEmptyCond, NULL);
+  pthread_cond_init(&queueNotFullCond, NULL);
+
+  //   printf("NumThreads: %d, QueueSize: %d\n", numThreads, queueSize);
 
   // Create thread pool.
   for (int i = 0; i < numThreads; i++) {
@@ -101,41 +118,69 @@ int main(int argc, char *argv[]) {
   while (1) {
     clientlen = sizeof(clientaddr);
     connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
+    struct timeval arrival = getTime();
+    // printf("\tGOT CONNECTION\n");
 
     // Prevent access to the queue.
     pthread_mutex_lock(&queueLock);
 
     // Wait until there is room in the queue.
-    if (queue->size == queue->maxSize) {
-      int size = queue->size / 2;
+    // printf("current + size = %d\n", numCurrentWorkers + queue->size);
+    if (numCurrentWorkers + queue->size == queue->maxSize) {
+      //   printf("\tFULL QUEUE\n");
+      int size = (queue->size + 1) / 2;
+      RequestInfo droppedInfo;
+
       switch (policy) {
       case BLOCK:
-        pthread_cond_wait(&queueCond, &queueLock);
+        pthread_cond_wait(&queueNotFullCond, &queueLock);
         break;
       case DROP_HEAD:
-        QueueRemoveFirst(queue);
+        if (queue->size == 0) {
+          Close(connfd);
+          pthread_mutex_unlock(&queueLock);
+          //   printf("Dropped1: %lu.%06lu\n", arrival.tv_sec, arrival.tv_usec);
+          continue;
+        } else {
+          droppedInfo = QueueRemoveFirst(queue);
+          //   printf("Dropped2: %lu.%06lu\n", droppedInfo.arrivalTime.tv_sec,
+          //          droppedInfo.arrivalTime.tv_usec);
+          Close(droppedInfo.fd);
+        }
+        break;
       case DROP_TAIL:
         Close(connfd);
         pthread_mutex_unlock(&queueLock);
         continue;
       case DROP_RANDOM:
-        for (int i = 0; i < size; i++) {
-          QueueRemoveRandom(queue);
+        if (queue->size == 0) {
+          Close(connfd);
+          pthread_mutex_unlock(&queueLock);
+          continue;
+        } else {
+          for (int i = 0; i < size; i++) {
+            droppedInfo = QueueRemoveRandom(queue);
+            Close(droppedInfo.fd);
+          }
         }
+        break;
       default:
         break;
       }
     }
-    assert(queue->size < queue->maxSize);
 
     RequestInfo info;
     info.fd = connfd;
-    info.arrivalTime = getTime();
+    info.arrivalTime = arrival;
+    // printf("BEFORE ADD: current + size = %d\n",
+    //        numCurrentWorkers + queue->size);
     QueueAdd(queue, info);
+    // printf("AFTER ADD: current + size = %d\n", numCurrentWorkers +
+    // queue->size);
 
     // Unlock the queue and signal to any waiting threads that there are new
     // jobs.
     pthread_mutex_unlock(&queueLock);
-    pthread_cond_signal(&queueCond);
+    pthread_cond_signal(&queueNotEmptyCond);
   }
 }

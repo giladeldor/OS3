@@ -28,15 +28,17 @@ typedef struct {
 
 } RequestQueue;
 
-extern RequestQueue *queue;
+extern volatile RequestQueue *queue;
 extern pthread_mutex_t queueLock;
-extern pthread_cond_t queueCond;
+extern pthread_cond_t queueNotEmptyCond;
 
 RequestQueue *QueueCreate(int maxSize);
 
 void QueueFree(RequestQueue *queue);
 
 void QueueAdd(RequestQueue *queue, RequestInfo info);
+
+RequestInfo QueueGetFirst(RequestQueue *queue);
 
 RequestInfo QueueRemoveFirst(RequestQueue *queue);
 
@@ -47,5 +49,7 @@ RequestInfo QueueRemoveRandom(RequestQueue *queue);
 void requestHandle(RequestInfo *info, ThreadStatistics *stats);
 
 struct timeval getTime();
+
+struct timeval getTimeDiff(struct timeval *start, struct timeval *stop);
 
 #endif

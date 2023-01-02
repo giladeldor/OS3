@@ -4,11 +4,12 @@
 
 #include "request.h"
 #include <assert.h>
+#include <sys/time.h>
 
 // requestError(      fd,    filename,        "404",    "Not found", "OS-HW3
 // Server could not find this file");
 void requestError(int fd, char *cause, char *errnum, char *shortmsg,
-                  char *longmsg) {
+                  char *longmsg, RequestInfo *info, ThreadStatistics *stats) {
   char buf[MAXLINE], body[MAXBUF];
 
   // Create the body of the error message
@@ -31,7 +32,34 @@ void requestError(int fd, char *cause, char *errnum, char *shortmsg,
   Rio_writen(fd, buf, strlen(buf));
   printf("%s", buf);
 
-  sprintf(buf, "Content-Length: %lu\r\n\r\n", strlen(body));
+  sprintf(buf, "Content-Length: %lu\r\n", strlen(body));
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Req-Arrival:: %lu.%06lu\r\n", info->arrivalTime.tv_sec,
+          info->arrivalTime.tv_usec);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Req-Dispatch:: %lu.%06lu\r\n",
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_sec,
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_usec);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Thread-Id:: %d\r\n", stats->id);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Thread-Count:: %d\r\n", stats->handleCount);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Thread-Static:: %d\r\n", stats->handleStaticCount);
+  Rio_writen(fd, buf, strlen(buf));
+  printf("%s", buf);
+
+  sprintf(buf, "Stat-Thread-Dynamic:: %d\r\n\r\n", stats->handleDynamicCount);
   Rio_writen(fd, buf, strlen(buf));
   printf("%s", buf);
 
@@ -112,12 +140,12 @@ void requestServeDynamic(int fd, char *filename, char *cgiargs,
   sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf,
           info->arrivalTime.tv_sec, info->arrivalTime.tv_usec);
   sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf,
-          info->handleTime.tv_sec - info->arrivalTime.tv_sec,
-          info->handleTime.tv_usec - info->arrivalTime.tv_usec);
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_sec,
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_usec);
   sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, stats->id);
   sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, stats->handleCount);
   sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, stats->handleStaticCount);
-  sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n\r\n", buf,
+  sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n", buf,
           stats->handleDynamicCount);
 
   Rio_writen(fd, buf, strlen(buf));
@@ -152,12 +180,12 @@ void requestServeStatic(int fd, char *filename, int filesize, RequestInfo *info,
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
   sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
   sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
-  sprintf(buf, "%sContent-Type: %s\r\n\r\n", buf, filetype);
+  sprintf(buf, "%sContent-Type: %s\r\n", buf, filetype);
   sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf,
           info->arrivalTime.tv_sec, info->arrivalTime.tv_usec);
   sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf,
-          info->handleTime.tv_sec - info->arrivalTime.tv_sec,
-          info->handleTime.tv_usec - info->arrivalTime.tv_usec);
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_sec,
+          getTimeDiff(&info->arrivalTime, &info->handleTime).tv_usec);
   sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, stats->id);
   sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, stats->handleCount);
   sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, stats->handleStaticCount);
@@ -187,7 +215,7 @@ void requestHandle(RequestInfo *info, ThreadStatistics *stats) {
 
   if (strcasecmp(method, "GET")) {
     requestError(fd, method, "501", "Not Implemented",
-                 "OS-HW3 Server does not implement this method");
+                 "OS-HW3 Server does not implement this method", info, stats);
     return;
   }
   requestReadhdrs(&rio);
@@ -195,14 +223,14 @@ void requestHandle(RequestInfo *info, ThreadStatistics *stats) {
   is_static = requestParseURI(uri, filename, cgiargs);
   if (stat(filename, &sbuf) < 0) {
     requestError(fd, filename, "404", "Not found",
-                 "OS-HW3 Server could not find this file");
+                 "OS-HW3 Server could not find this file", info, stats);
     return;
   }
 
   if (is_static) {
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
       requestError(fd, filename, "403", "Forbidden",
-                   "OS-HW3 Server could not read this file");
+                   "OS-HW3 Server could not read this file", info, stats);
       return;
     }
     stats->handleStaticCount++;
@@ -210,7 +238,7 @@ void requestHandle(RequestInfo *info, ThreadStatistics *stats) {
   } else {
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
       requestError(fd, filename, "403", "Forbidden",
-                   "OS-HW3 Server could not run this CGI program");
+                   "OS-HW3 Server could not run this CGI program", info, stats);
       return;
     }
     stats->handleDynamicCount++;
@@ -229,7 +257,7 @@ RequestQueue *QueueCreate(int maxSize) {
 
 void QueueFree(RequestQueue *queue) {
   if (!queue) {
-    return NULL;
+    return;
   }
 
   RequestNode *current = queue->head;
@@ -264,6 +292,13 @@ void QueueAdd(RequestQueue *queue, RequestInfo info) {
   }
 
   queue->size++;
+}
+
+RequestInfo QueueGetFirst(RequestQueue *queue) {
+  assert(queue != NULL);
+  assert(queue->size > 0);
+
+  return queue->head->info;
 }
 
 RequestInfo QueueRemoveFirst(RequestQueue *queue) {
@@ -325,6 +360,7 @@ RequestInfo QueueRemoveRandom(RequestQueue *queue) {
 
   RequestInfo info = itr->info;
   free(itr);
+  queue->size--;
   return info;
 }
 
@@ -333,4 +369,11 @@ struct timeval getTime() {
   gettimeofday(&currentTime, NULL);
 
   return currentTime;
+}
+
+struct timeval getTimeDiff(struct timeval *start, struct timeval *stop) {
+  struct timeval diff;
+  timersub(stop, start, &diff);
+
+  return diff;
 }
