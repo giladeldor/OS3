@@ -1,8 +1,18 @@
 #ifndef __REQUEST_H__
+#include "segel.h"
 #include <pthread.h>
 
 typedef struct {
+  int id;
+  int handleCount;
+  int handleStaticCount;
+  int handleDynamicCount;
+} ThreadStatistics;
+
+typedef struct {
   int fd;
+  struct timeval arrivalTime;
+  struct timeval handleTime;
 } RequestInfo;
 
 typedef struct request_node {
@@ -34,6 +44,8 @@ RequestInfo QueueRemoveLast(RequestQueue *queue);
 
 RequestInfo QueueRemoveRandom(RequestQueue *queue);
 
-void requestHandle(int fd);
+void requestHandle(RequestInfo *info, ThreadStatistics *stats);
+
+struct timeval getTime();
 
 #endif

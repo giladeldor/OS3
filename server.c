@@ -23,7 +23,13 @@ typedef enum {
 // Most of the work is done within routines written in request.c
 //
 
-void threadWorker(void *_arg) {
+void threadWorker(void *arg) {
+  ThreadStatistics statistics;
+  statistics.id = (int)arg;
+  statistics.handleCount = 0;
+  statistics.handleStaticCount = 0;
+  statistics.handleDynamicCount = 0;
+
   RequestInfo info;
 
   while (1) {
@@ -36,11 +42,13 @@ void threadWorker(void *_arg) {
     assert(queue->size > 0);
 
     info = QueueRemoveFirst(queue);
+    info.handleTime = getTime();
 
     pthread_mutex_unlock(&queueLock);
 
     // Handle request.
-    requestHandle(info.fd);
+    statistics.handleCount++;
+    requestHandle(&info, &statistics);
     Close(info.fd);
   }
 }
@@ -86,7 +94,7 @@ int main(int argc, char *argv[]) {
   // Create thread pool.
   for (int i = 0; i < numThreads; i++) {
     pthread_t thread;
-    pthread_create(&thread, NULL, threadWorker, NULL);
+    pthread_create(&thread, NULL, threadWorker, (void *)i);
   }
 
   listenfd = Open_listenfd(port);
@@ -122,6 +130,7 @@ int main(int argc, char *argv[]) {
 
     RequestInfo info;
     info.fd = connfd;
+    info.arrivalTime = getTime();
     QueueAdd(queue, info);
 
     // Unlock the queue and signal to any waiting threads that there are new

@@ -3,7 +3,6 @@
 //
 
 #include "request.h"
-#include "segel.h"
 #include <assert.h>
 
 // requestError(      fd,    filename,        "404",    "Not found", "OS-HW3
@@ -102,13 +101,24 @@ void requestGetFiletype(char *filename, char *filetype) {
     strcpy(filetype, "text/plain");
 }
 
-void requestServeDynamic(int fd, char *filename, char *cgiargs) {
+void requestServeDynamic(int fd, char *filename, char *cgiargs,
+                         RequestInfo *info, ThreadStatistics *stats) {
   char buf[MAXLINE], *emptylist[] = {NULL};
 
   // The server does only a little bit of the header.
   // The CGI script has to finish writing out the header.
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
   sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
+  sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf,
+          info->arrivalTime.tv_sec, info->arrivalTime.tv_usec);
+  sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf,
+          info->handleTime.tv_sec - info->arrivalTime.tv_sec,
+          info->handleTime.tv_usec - info->arrivalTime.tv_usec);
+  sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, stats->id);
+  sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, stats->handleCount);
+  sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, stats->handleStaticCount);
+  sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n\r\n", buf,
+          stats->handleDynamicCount);
 
   Rio_writen(fd, buf, strlen(buf));
 
@@ -124,7 +134,8 @@ void requestServeDynamic(int fd, char *filename, char *cgiargs) {
   WaitPid(child, NULL, 0);
 }
 
-void requestServeStatic(int fd, char *filename, int filesize) {
+void requestServeStatic(int fd, char *filename, int filesize, RequestInfo *info,
+                        ThreadStatistics *stats) {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
 
@@ -142,7 +153,16 @@ void requestServeStatic(int fd, char *filename, int filesize) {
   sprintf(buf, "%sServer: OS-HW3 Web Server\r\n", buf);
   sprintf(buf, "%sContent-Length: %d\r\n", buf, filesize);
   sprintf(buf, "%sContent-Type: %s\r\n\r\n", buf, filetype);
-
+  sprintf(buf, "%sStat-Req-Arrival:: %lu.%06lu\r\n", buf,
+          info->arrivalTime.tv_sec, info->arrivalTime.tv_usec);
+  sprintf(buf, "%sStat-Req-Dispatch:: %lu.%06lu\r\n", buf,
+          info->handleTime.tv_sec - info->arrivalTime.tv_sec,
+          info->handleTime.tv_usec - info->arrivalTime.tv_usec);
+  sprintf(buf, "%sStat-Thread-Id:: %d\r\n", buf, stats->id);
+  sprintf(buf, "%sStat-Thread-Count:: %d\r\n", buf, stats->handleCount);
+  sprintf(buf, "%sStat-Thread-Static:: %d\r\n", buf, stats->handleStaticCount);
+  sprintf(buf, "%sStat-Thread-Dynamic:: %d\r\n\r\n", buf,
+          stats->handleDynamicCount);
   Rio_writen(fd, buf, strlen(buf));
 
   //  Writes out to the client socket the memory-mapped file
@@ -151,8 +171,8 @@ void requestServeStatic(int fd, char *filename, int filesize) {
 }
 
 // handle a request
-void requestHandle(int fd) {
-
+void requestHandle(RequestInfo *info, ThreadStatistics *stats) {
+  int fd = info->fd;
   int is_static;
   struct stat sbuf;
   char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -185,14 +205,16 @@ void requestHandle(int fd) {
                    "OS-HW3 Server could not read this file");
       return;
     }
-    requestServeStatic(fd, filename, sbuf.st_size);
+    stats->handleStaticCount++;
+    requestServeStatic(fd, filename, sbuf.st_size, info, stats);
   } else {
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
       requestError(fd, filename, "403", "Forbidden",
                    "OS-HW3 Server could not run this CGI program");
       return;
     }
-    requestServeDynamic(fd, filename, cgiargs);
+    stats->handleDynamicCount++;
+    requestServeDynamic(fd, filename, cgiargs, info, stats);
   }
 }
 
@@ -304,4 +326,11 @@ RequestInfo QueueRemoveRandom(RequestQueue *queue) {
   RequestInfo info = itr->info;
   free(itr);
   return info;
+}
+
+struct timeval getTime() {
+  struct timeval currentTime;
+  gettimeofday(&currentTime, NULL);
+
+  return currentTime;
 }
